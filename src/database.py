@@ -27,15 +27,32 @@ class TrackDatabase:
                     name TEXT NOT NULL,
                     artist TEXT NOT NULL,
                     album TEXT,
+                    album_art_url TEXT,
+                    track_number INTEGER,
                     status TEXT NOT NULL DEFAULT 'pending',
                     added_at TEXT,
                     processed_at TEXT,
                     file_path TEXT
                 )
             """)
+            # Add new columns if they don't exist (for existing databases)
+            for col, col_type in [("album_art_url", "TEXT"), ("track_number", "INTEGER")]:
+                try:
+                    conn.execute(f"ALTER TABLE tracks ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
             conn.commit()
 
-    def add_track(self, spotify_id: str, name: str, artist: str, album: str, added_at: datetime) -> bool:
+    def add_track(
+        self,
+        spotify_id: str,
+        name: str,
+        artist: str,
+        album: str,
+        added_at: datetime,
+        album_art_url: str | None = None,
+        track_number: int | None = None
+    ) -> bool:
         """Add a new track. Returns False if already exists."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
@@ -44,8 +61,10 @@ class TrackDatabase:
                 return False
 
             cursor.execute(
-                "INSERT INTO tracks (spotify_id, name, artist, album, added_at) VALUES (?, ?, ?, ?, ?)",
-                (spotify_id, name, artist, album, added_at.isoformat())
+                """INSERT INTO tracks
+                   (spotify_id, name, artist, album, added_at, album_art_url, track_number)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (spotify_id, name, artist, album, added_at.isoformat(), album_art_url, track_number)
             )
             conn.commit()
             return True

@@ -33,11 +33,11 @@ def tag_mp3(
         audio.add_tags()
 
     # Clear existing tags
-    audio.tags.delete_frame("TIT2")
-    audio.tags.delete_frame("TPE1")
-    audio.tags.delete_frame("TALB")
-    audio.tags.delete_frame("TRCK")
-    audio.tags.delete_frame("APIC")
+    audio.tags.delall("TIT2")
+    audio.tags.delall("TPE1")
+    audio.tags.delall("TALB")
+    audio.tags.delall("TRCK")
+    audio.tags.delall("APIC")
 
     # Add metadata
     audio.tags.add(TIT2(encoding=3, text=title))

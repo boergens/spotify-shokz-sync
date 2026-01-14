@@ -21,6 +21,7 @@ class Track:
     album_art_url: str | None
     added_at: datetime
     duration_ms: int
+    track_number: int | None = None
 
 
 def create_spotify_client() -> spotipy.Spotify:
@@ -31,6 +32,21 @@ def create_spotify_client() -> spotipy.Spotify:
         redirect_uri=os.environ.get("SPOTIFY_REDIRECT_URI", "http://localhost:8888/callback"),
         scope=SCOPE,
     ))
+
+
+def get_album_art_url(images: list[dict], target_size: int = 640) -> str | None:
+    """Get album art URL closest to target size (default 640x640)."""
+    if not images:
+        return None
+    # Spotify images are sorted by size descending (640, 300, 64 typically)
+    # Find the one closest to target size
+    best = images[0]
+    for img in images:
+        if img.get("height") == target_size:
+            return img["url"]
+        if abs(img.get("height", 0) - target_size) < abs(best.get("height", 0) - target_size):
+            best = img
+    return best["url"]
 
 
 def get_new_liked_songs(sp: spotipy.Spotify, since: datetime = CUTOFF_DATE) -> list[Track]:
@@ -62,9 +78,10 @@ def get_new_liked_songs(sp: spotipy.Spotify, since: datetime = CUTOFF_DATE) -> l
                 name=track_data["name"],
                 artist=track_data["artists"][0]["name"],
                 album=track_data["album"]["name"],
-                album_art_url=album_images[0]["url"] if album_images else None,
+                album_art_url=get_album_art_url(album_images, target_size=640),
                 added_at=added_at,
                 duration_ms=track_data["duration_ms"],
+                track_number=track_data.get("track_number"),
             ))
 
         offset += limit
@@ -85,7 +102,8 @@ def get_track_by_id(sp: spotipy.Spotify, track_id: str) -> Track:
         name=track_data["name"],
         artist=track_data["artists"][0]["name"],
         album=track_data["album"]["name"],
-        album_art_url=album_images[0]["url"] if album_images else None,
+        album_art_url=get_album_art_url(album_images, target_size=640),
         added_at=datetime.now(),  # Not available from this endpoint
         duration_ms=track_data["duration_ms"],
+        track_number=track_data.get("track_number"),
     )
