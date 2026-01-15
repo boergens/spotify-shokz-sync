@@ -20,10 +20,33 @@ def get_current_ssid() -> str | None:
         return None
 
 
-def _get_ssid_macos() -> str | None:
-    """Get SSID on macOS using airport command."""
+def _get_wifi_interface_macos() -> str | None:
+    """Get the WiFi interface name on macOS."""
     result = subprocess.run(
-        ["/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport", "-I"],
+        ["networksetup", "-listallhardwareports"],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        return None
+
+    lines = result.stdout.splitlines()
+    for i, line in enumerate(lines):
+        if "Wi-Fi" in line and i + 1 < len(lines):
+            device_line = lines[i + 1]
+            if device_line.startswith("Device:"):
+                return device_line.split(":", 1)[1].strip()
+    return "en0"  # fallback default
+
+
+def _get_ssid_macos() -> str | None:
+    """Get SSID on macOS using networksetup command."""
+    interface = _get_wifi_interface_macos()
+    if not interface:
+        return None
+
+    result = subprocess.run(
+        ["networksetup", "-getairportnetwork", interface],
         capture_output=True,
         text=True
     )
@@ -31,10 +54,10 @@ def _get_ssid_macos() -> str | None:
     if result.returncode != 0:
         return None
 
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("SSID:"):
-            return line.split(":", 1)[1].strip()
+    # Output format: "Current Wi-Fi Network: <SSID>" or "You are not associated..."
+    output = result.stdout.strip()
+    if output.startswith("Current Wi-Fi Network:"):
+        return output.split(":", 1)[1].strip()
 
     return None
 
