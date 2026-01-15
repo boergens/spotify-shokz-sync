@@ -318,10 +318,17 @@ class Orchestrator:
             for volume in pending_volumes:
                 print(f"USB device detected: {volume.name}")
 
-                result = await asyncio.get_event_loop().run_in_executor(
-                    self.executor,
-                    lambda: run_sync(self.output_dir, self.db.db_path)
-                )
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            self.executor,
+                            lambda: run_sync(self.output_dir, self.db.db_path)
+                        ),
+                        timeout=300.0  # 5 minute timeout for sync
+                    )
+                except TimeoutError:
+                    print(f"USB sync timed out for {volume.name}")
+                    continue
 
                 synced_volumes.add(volume)
 
