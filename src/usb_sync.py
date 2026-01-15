@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 import platform
@@ -86,7 +87,8 @@ def sync_tracks_to_device(
     music_folder: Path,
     db: TrackDatabase,
     source_dir: Path,
-    max_retries: int = 5
+    max_retries: int = 5,
+    cancel_event: threading.Event | None = None
 ) -> list[dict]:
     """Sync recorded tracks to USB device.
 
@@ -95,6 +97,7 @@ def sync_tracks_to_device(
         db: Track database
         source_dir: Local music library directory
         max_retries: Max retry attempts for failed syncs
+        cancel_event: If set, abort sync early
 
     Returns:
         List of tracks that were synced
@@ -108,6 +111,9 @@ def sync_tracks_to_device(
 
     synced = []
     for track in recorded_tracks:
+        if cancel_event and cancel_event.is_set():
+            print("Sync cancelled")
+            break
         spotify_id = track["spotify_id"]
         file_path = track.get("file_path")
         if not file_path:
@@ -161,7 +167,11 @@ def sync_tracks_to_device(
     return synced
 
 
-def run_sync(source_dir: Path, db_path: Path | str = "tracks.db") -> dict:
+def run_sync(
+    source_dir: Path,
+    db_path: Path | str = "tracks.db",
+    cancel_event: threading.Event | None = None
+) -> dict:
     """Run a single sync operation.
 
     Detects USB volumes and syncs any recorded tracks.
@@ -169,6 +179,7 @@ def run_sync(source_dir: Path, db_path: Path | str = "tracks.db") -> dict:
     Args:
         source_dir: Local music library directory
         db_path: Path to track database
+        cancel_event: If set, abort sync early
 
     Returns:
         Dict with sync results
@@ -181,10 +192,12 @@ def run_sync(source_dir: Path, db_path: Path | str = "tracks.db") -> dict:
 
     all_synced = []
     for volume in volumes:
+        if cancel_event and cancel_event.is_set():
+            break
         music_folder = find_music_folder(volume)
         if music_folder:
             print(f"Found USB volume: {volume.name}")
-            synced = sync_tracks_to_device(music_folder, db, source_dir)
+            synced = sync_tracks_to_device(music_folder, db, source_dir, cancel_event=cancel_event)
             all_synced.extend(synced)
             if synced:
                 print(f"Synced {len(synced)} tracks to {volume.name}")

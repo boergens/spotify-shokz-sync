@@ -3,6 +3,7 @@
 import asyncio
 import os
 import signal
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -318,15 +319,17 @@ class Orchestrator:
             for volume in pending_volumes:
                 print(f"USB device detected: {volume.name}")
 
+                cancel_event = threading.Event()
                 try:
                     result = await asyncio.wait_for(
                         asyncio.get_event_loop().run_in_executor(
                             self.executor,
-                            lambda: run_sync(self.output_dir, self.db.db_path)
+                            lambda: run_sync(self.output_dir, self.db.db_path, cancel_event)
                         ),
                         timeout=300.0  # 5 minute timeout for sync
                     )
                 except TimeoutError:
+                    cancel_event.set()
                     print(f"USB sync timed out for {volume.name}")
                     continue
 
