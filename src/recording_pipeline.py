@@ -45,6 +45,36 @@ def play_track(sp: spotipy.Spotify, track_id: str, device_id: str | None = None)
     sp.start_playback(device_id=device_id, uris=[uri])
 
 
+async def wait_for_playback_started(
+    sp: spotipy.Spotify,
+    track_id: str,
+    timeout: float = 5.0,
+    poll_interval: float = 0.2
+) -> bool:
+    """
+    Poll Spotify until the specified track is playing.
+
+    Args:
+        sp: Spotify client
+        track_id: Expected track ID
+        timeout: Max seconds to wait
+        poll_interval: Seconds between polls
+
+    Returns:
+        True if playback confirmed, False if timeout
+    """
+    elapsed = 0.0
+    while elapsed < timeout:
+        playback = sp.current_playback()
+        if playback and playback.get("is_playing"):
+            item = playback.get("item")
+            if item and item.get("id") == track_id:
+                return True
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+    return False
+
+
 def stop_playback(sp: spotipy.Spotify, device_id: str | None = None):
     """Stop playback."""
     sp.pause_playback(device_id=device_id)
@@ -138,7 +168,11 @@ async def process_approved_track(
         print(f"Duration: {track.duration_ms / 1000:.0f}s")
 
         play_track(sp, spotify_id, device_id)
-        await asyncio.sleep(0.5)
+
+        if not await wait_for_playback_started(sp, spotify_id):
+            db.record_failure(spotify_id, "Playback did not start within timeout")
+            print(f"Playback did not start for {track.name}")
+            return None
 
         mp3_path = await record_track(track, output_dir, config)
 
