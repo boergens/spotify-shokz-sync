@@ -298,7 +298,7 @@ class Orchestrator:
         """Monitor for USB devices and sync when detected."""
         print("USB sync loop started")
 
-        known_volumes = set()
+        synced_volumes = set()
 
         while self.running:
             await asyncio.sleep(USB_POLL_INTERVAL)
@@ -309,24 +309,30 @@ class Orchestrator:
                 lambda: set(get_usb_volumes())
             )
 
-            new_volumes = current_volumes - known_volumes
+            # Skip sync if recording is in progress to avoid race condition
+            if self.recording_in_progress:
+                continue
 
-            for volume in new_volumes:
+            pending_volumes = current_volumes - synced_volumes
+
+            for volume in pending_volumes:
                 print(f"USB device detected: {volume.name}")
+
                 result = await asyncio.get_event_loop().run_in_executor(
                     self.executor,
                     lambda: run_sync(self.output_dir, self.db.db_path)
                 )
 
+                synced_volumes.add(volume)
+
                 if result["synced"]:
                     print(f"Synced {len(result['synced'])} tracks")
                     await self._notify_sync_complete(result["synced"])
 
-            removed = known_volumes - current_volumes
+            removed = synced_volumes - current_volumes
             for volume in removed:
                 print(f"USB device removed: {volume.name}")
-
-            known_volumes = current_volumes
+                synced_volumes.discard(volume)
 
     async def _notify_sync_complete(self, synced_tracks: list[dict]):
         """Send notification that sync is complete."""
