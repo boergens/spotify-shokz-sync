@@ -48,6 +48,8 @@ class TrackDatabase:
                     conn.execute(f"ALTER TABLE tracks ADD COLUMN {col} {col_type}")
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_tracks_status ON tracks(status)")
             conn.commit()
 
     def add_track(
