@@ -6,6 +6,7 @@ from datetime import datetime
 
 import discord
 from discord.ext import tasks
+import spotipy
 
 from spotify_monitor import create_spotify_client, get_new_liked_songs, Track
 from database import TrackDatabase, TrackStatus
@@ -15,27 +16,27 @@ POLL_INTERVAL_SECONDS = 60
 
 
 class SongApprovalBot(discord.Client):
-    def __init__(self, db: TrackDatabase, channel_id: int):
+    def __init__(self, db: TrackDatabase, channel_id: int) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
 
         self.db = db
         self.channel_id = channel_id
-        self.spotify = None
-        self.pending_messages = {}  # message_id -> spotify_id
+        self.spotify: spotipy.Spotify | None = None
+        self.pending_messages: dict[int, str] = {}
 
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         self.poll_spotify.start()
 
-    async def on_ready(self):
+    async def on_ready(self) -> None:
         print(f"Bot logged in as {self.user}")
         self.spotify = create_spotify_client()
 
         # Notify about any pending tracks from previous session
         await self.notify_pending_tracks()
 
-    async def notify_pending_tracks(self):
+    async def notify_pending_tracks(self) -> None:
         """Send notifications for tracks that are pending approval."""
         channel = self.get_channel(self.channel_id)
         if not channel:
@@ -46,7 +47,7 @@ class SongApprovalBot(discord.Client):
         for track_row in pending:
             await self.send_approval_request(channel, track_row)
 
-    async def send_approval_request(self, channel, track: dict):
+    async def send_approval_request(self, channel: discord.abc.Messageable, track: dict) -> None:
         """Send a message asking for approval of a track."""
         embed = discord.Embed(
             title=track["name"],
@@ -66,7 +67,7 @@ class SongApprovalBot(discord.Client):
         await msg.add_reaction("\u2705")  # checkmark
         await msg.add_reaction("\u274c")  # X
 
-    async def on_message(self, message: discord.Message):
+    async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
             return
 
@@ -81,11 +82,11 @@ class SongApprovalBot(discord.Client):
                 response = message.content.lower().strip()
 
                 if response in ("yes", "y", "approve"):
-                    await self.approve_track(spotify_id, message)
+                    await self.approve_track(spotify_id)
                 elif response in ("no", "n", "reject", "skip"):
-                    await self.reject_track(spotify_id, message)
+                    await self.reject_track(spotify_id)
 
-    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User):
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.User) -> None:
         if user.bot:
             return
 
@@ -96,11 +97,11 @@ class SongApprovalBot(discord.Client):
         spotify_id = self.pending_messages[msg_id]
 
         if str(reaction.emoji) == "\u2705":  # checkmark
-            await self.approve_track(spotify_id, reaction.message)
+            await self.approve_track(spotify_id)
         elif str(reaction.emoji) == "\u274c":  # X
-            await self.reject_track(spotify_id, reaction.message)
+            await self.reject_track(spotify_id)
 
-    async def approve_track(self, spotify_id: str, context):
+    async def approve_track(self, spotify_id: str) -> None:
         """Mark track as approved."""
         track = self.db.get_track(spotify_id)
         if not track:
@@ -116,7 +117,7 @@ class SongApprovalBot(discord.Client):
         channel = self.get_channel(self.channel_id)
         await channel.send(f"Approved **{track['name']}** by {track['artist']}. Will record it soon.")
 
-    async def reject_track(self, spotify_id: str, context):
+    async def reject_track(self, spotify_id: str) -> None:
         """Mark track as rejected."""
         track = self.db.get_track(spotify_id)
         if not track:
@@ -133,7 +134,7 @@ class SongApprovalBot(discord.Client):
         await channel.send(f"Skipped **{track['name']}** by {track['artist']}.")
 
     @tasks.loop(seconds=POLL_INTERVAL_SECONDS)
-    async def poll_spotify(self):
+    async def poll_spotify(self) -> None:
         """Poll Spotify for new liked songs."""
         if not self.spotify:
             return
@@ -160,11 +161,11 @@ class SongApprovalBot(discord.Client):
                 await self.send_approval_request(channel, track_row)
 
     @poll_spotify.before_loop
-    async def before_poll(self):
+    async def before_poll(self) -> None:
         await self.wait_until_ready()
 
 
-async def send_completion_notification(channel_id: int, track_name: str, artist: str):
+async def send_completion_notification(channel_id: int, track_name: str, artist: str) -> None:
     """Send a completion notification (called from recording pipeline)."""
     # This is a standalone function for other modules to use
     # It creates a temporary client just to send the message
@@ -183,7 +184,7 @@ async def send_completion_notification(channel_id: int, track_name: str, artist:
     await client.start(token)
 
 
-def run_bot():
+def run_bot() -> None:
     """Run the Discord bot."""
     token = os.environ["DISCORD_TOKEN"]
     channel_id = int(os.environ["DISCORD_CHANNEL_ID"])

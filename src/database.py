@@ -15,11 +15,11 @@ class TrackStatus(Enum):
 
 
 class TrackDatabase:
-    def __init__(self, db_path: str | Path = "tracks.db"):
+    def __init__(self, db_path: str | Path = "tracks.db") -> None:
         self.db_path = Path(db_path)
         self._init_db()
 
-    def _init_db(self):
+    def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS tracks (
@@ -87,7 +87,7 @@ class TrackDatabase:
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def update_status(self, spotify_id: str, status: TrackStatus, file_path: str | None = None):
+    def update_status(self, spotify_id: str, status: TrackStatus, file_path: str | None = None) -> None:
         """Update track status."""
         with sqlite3.connect(self.db_path) as conn:
             if file_path:
@@ -117,7 +117,7 @@ class TrackDatabase:
             cursor.execute("SELECT 1 FROM tracks WHERE spotify_id = ?", (spotify_id,))
             return cursor.fetchone() is not None
 
-    def record_failure(self, spotify_id: str, error: str):
+    def record_failure(self, spotify_id: str, error: str) -> None:
         """Record a failed processing attempt."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -130,7 +130,7 @@ class TrackDatabase:
             )
             conn.commit()
 
-    def reset_retry(self, spotify_id: str):
+    def reset_retry(self, spotify_id: str) -> None:
         """Reset retry count after successful processing."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -179,6 +179,6 @@ class TrackDatabase:
             )
             return [dict(row) for row in cursor.fetchall()]
 
-    def force_retry(self, spotify_id: str):
+    def force_retry(self, spotify_id: str) -> None:
         """Force a track to be retried by resetting its retry state."""
         self.reset_retry(spotify_id)

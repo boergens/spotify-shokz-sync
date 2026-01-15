@@ -14,7 +14,7 @@ def tag_mp3(
     album: str,
     track_number: int | None = None,
     album_art_url: str | None = None
-):
+) -> None:
     """
     Add ID3 tags to an MP3 file.
 

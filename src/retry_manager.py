@@ -6,7 +6,7 @@ from pathlib import Path
 from database import TrackDatabase, TrackStatus
 
 
-def list_stuck(db: TrackDatabase, max_retries: int = 5):
+def list_stuck(db: TrackDatabase, max_retries: int = 5) -> None:
     """List all tracks that have exceeded max retries."""
     stuck = db.get_stuck_tracks(max_retries)
     if not stuck:
@@ -23,7 +23,7 @@ def list_stuck(db: TrackDatabase, max_retries: int = 5):
         print()
 
 
-def retry_track(db: TrackDatabase, spotify_id: str):
+def retry_track(db: TrackDatabase, spotify_id: str) -> None:
     """Force retry a specific track."""
     track = db.get_track(spotify_id)
     if not track:
@@ -35,7 +35,7 @@ def retry_track(db: TrackDatabase, spotify_id: str):
     print("Track will be processed on next cycle.")
 
 
-def retry_all_stuck(db: TrackDatabase, max_retries: int = 5):
+def retry_all_stuck(db: TrackDatabase, max_retries: int = 5) -> None:
     """Force retry all stuck tracks."""
     stuck = db.get_stuck_tracks(max_retries)
     if not stuck:
@@ -49,14 +49,14 @@ def retry_all_stuck(db: TrackDatabase, max_retries: int = 5):
     print(f"\nReset {len(stuck)} track(s). They will be processed on next cycle.")
 
 
-def show_status(db: TrackDatabase):
+def show_status(db: TrackDatabase) -> None:
     """Show counts by status."""
     for status in TrackStatus:
         tracks = db.get_by_status(status)
         print(f"{status.value}: {len(tracks)}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Manage stuck tracks and retries")
     parser.add_argument("--db", type=Path, default=Path("tracks.db"))
 

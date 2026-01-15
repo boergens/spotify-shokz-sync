@@ -9,6 +9,7 @@ from pathlib import Path
 
 import discord
 from discord.ext import tasks
+import spotipy
 
 from database import TrackDatabase, TrackStatus
 from spotify_monitor import create_spotify_client, get_new_liked_songs
@@ -32,7 +33,7 @@ class Orchestrator:
         discord_token: str | None = None,
         discord_channel_id: int | None = None,
         target_wifi_ssid: str | None = None,
-    ):
+    ) -> None:
         self.db = TrackDatabase(db_path)
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -41,9 +42,9 @@ class Orchestrator:
         self.discord_channel_id = discord_channel_id or int(os.environ.get("DISCORD_CHANNEL_ID", 0))
         self.target_wifi_ssid = target_wifi_ssid
 
-        self.bot = None
-        self.spotify = None
-        self.pending_messages = {}  # message_id -> spotify_id
+        self.bot: discord.Client | None = None
+        self.spotify: spotipy.Spotify | None = None
+        self.pending_messages: dict[int, str] = {}
         self.running = False
         self.recording_in_progress = False
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -54,7 +55,7 @@ class Orchestrator:
             return True  # No WiFi check configured
         return is_connected() and get_current_ssid() == self.target_wifi_ssid
 
-    async def start(self):
+    async def start(self) -> None:
         """Start all orchestrated services."""
         print("Starting orchestrator...")
         self.running = True
@@ -79,7 +80,7 @@ class Orchestrator:
 
         await asyncio.gather(*tasks_to_run)
 
-    async def stop(self):
+    async def stop(self) -> None:
         """Gracefully stop all services."""
         print("\nShutting down orchestrator...")
         self.running = False
@@ -90,7 +91,7 @@ class Orchestrator:
         self.executor.shutdown(wait=False)
         print("Shutdown complete")
 
-    def _setup_discord_bot(self):
+    def _setup_discord_bot(self) -> None:
         """Setup the Discord bot for approval workflow."""
         intents = discord.Intents.default()
         intents.message_content = True
@@ -148,7 +149,7 @@ class Orchestrator:
 
         self._spotify_poll_task = spotify_poll
 
-    async def _run_discord_bot(self):
+    async def _run_discord_bot(self) -> None:
         """Run the Discord bot."""
         if not self.discord_token:
             print("No Discord token - running without approval bot")
@@ -158,7 +159,7 @@ class Orchestrator:
 
         await self.bot.start(self.discord_token)
 
-    async def _notify_pending_tracks(self):
+    async def _notify_pending_tracks(self) -> None:
         """Send notifications for tracks pending approval."""
         channel = self.bot.get_channel(self.discord_channel_id)
         if not channel:
@@ -169,7 +170,7 @@ class Orchestrator:
         for track_row in pending:
             await self._send_approval_request(channel, track_row)
 
-    async def _send_approval_request(self, channel, track: dict):
+    async def _send_approval_request(self, channel: discord.abc.Messageable, track: dict) -> None:
         """Send approval request message."""
         embed = discord.Embed(
             title=track["name"],
@@ -188,7 +189,7 @@ class Orchestrator:
         await msg.add_reaction("\u2705")
         await msg.add_reaction("\u274c")
 
-    async def _poll_spotify(self):
+    async def _poll_spotify(self) -> None:
         """Poll Spotify for new liked songs."""
         if not self.spotify:
             return
@@ -215,7 +216,7 @@ class Orchestrator:
                 track_row = self.db.get_track(track.id)
                 await self._send_approval_request(channel, track_row)
 
-    async def _approve_track(self, spotify_id: str):
+    async def _approve_track(self, spotify_id: str) -> None:
         """Mark track as approved and notify."""
         track = self.db.get_track(spotify_id)
         if not track:
@@ -231,7 +232,7 @@ class Orchestrator:
         await channel.send(f"Approved **{track['name']}** by {track['artist']}. Will record soon.")
         print(f"Approved: {track['name']}")
 
-    async def _reject_track(self, spotify_id: str):
+    async def _reject_track(self, spotify_id: str) -> None:
         """Mark track as rejected."""
         track = self.db.get_track(spotify_id)
         if not track:
@@ -247,7 +248,7 @@ class Orchestrator:
         await channel.send(f"Skipped **{track['name']}** by {track['artist']}.")
         print(f"Rejected: {track['name']}")
 
-    async def _recording_loop(self):
+    async def _recording_loop(self) -> None:
         """Periodically check for approved tracks and record them."""
         print("Recording loop started")
 
@@ -286,7 +287,7 @@ class Orchestrator:
 
             self.recording_in_progress = False
 
-    async def _notify_recording_complete(self, track: dict):
+    async def _notify_recording_complete(self, track: dict) -> None:
         """Send notification that recording is complete."""
         if not self.bot or not self.discord_channel_id:
             return
@@ -295,7 +296,7 @@ class Orchestrator:
         if channel:
             await channel.send(f"Recorded **{track['name']}** by {track['artist']}. Ready for sync.")
 
-    async def _usb_sync_loop(self):
+    async def _usb_sync_loop(self) -> None:
         """Monitor for USB devices and sync when detected."""
         print("USB sync loop started")
 
@@ -344,7 +345,7 @@ class Orchestrator:
                 print(f"USB device removed: {volume.name}")
                 synced_volumes.discard(volume)
 
-    async def _notify_sync_complete(self, synced_tracks: list[dict]):
+    async def _notify_sync_complete(self, synced_tracks: list[dict]) -> None:
         """Send notification that sync is complete."""
         if not self.bot or not self.discord_channel_id:
             return
@@ -355,7 +356,7 @@ class Orchestrator:
             await channel.send(f"Synced {count} track(s) to your MP3 player.")
 
 
-def main():
+def main() -> None:
     """Entry point for the orchestrator."""
     import argparse
 
