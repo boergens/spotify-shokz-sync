@@ -121,64 +121,81 @@ async def process_approved_track(
     Returns:
         Path to recorded MP3, or None if failed
     """
-    sp = create_spotify_client_with_playback()
+    sp = None
+    device_id = None
 
-    # Get track info
-    track = get_track_by_id(sp, spotify_id)
-    device_id = get_active_device(sp)
+    try:
+        sp = create_spotify_client_with_playback()
+        track = get_track_by_id(sp, spotify_id)
+        device_id = get_active_device(sp)
 
-    if not device_id:
-        print("No active Spotify device found. Please open Spotify.")
+        if not device_id:
+            db.record_failure(spotify_id, "No active Spotify device found")
+            print("No active Spotify device found. Please open Spotify.")
+            return None
+
+        print(f"Recording: {track.name} by {track.artist}")
+        print(f"Duration: {track.duration_ms / 1000:.0f}s")
+
+        play_track(sp, spotify_id, device_id)
+        await asyncio.sleep(0.5)
+
+        mp3_path = await record_track(track, output_dir, config)
+
+        stop_playback(sp, device_id)
+
+        db.update_status(spotify_id, TrackStatus.RECORDED, str(mp3_path))
+        db.reset_retry(spotify_id)
+
+        print(f"Completed: {mp3_path}")
+        return mp3_path
+
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {e}"
+        db.record_failure(spotify_id, error_msg)
+        print(f"Failed to record {spotify_id}: {error_msg}")
+
+        # Try to stop playback if we started it
+        if sp and device_id:
+            try:
+                stop_playback(sp, device_id)
+            except Exception:
+                pass
+
         return None
-
-    print(f"Recording: {track.name} by {track.artist}")
-    print(f"Duration: {track.duration_ms / 1000:.0f}s")
-
-    # Start playback
-    play_track(sp, spotify_id, device_id)
-
-    # Small delay for playback to start
-    await asyncio.sleep(0.5)
-
-    # Record the track
-    mp3_path = await record_track(track, output_dir, config)
-
-    # Stop playback
-    stop_playback(sp, device_id)
-
-    # Update database
-    db.update_status(spotify_id, TrackStatus.RECORDED, str(mp3_path))
-
-    print(f"Completed: {mp3_path}")
-    return mp3_path
 
 
 async def process_all_approved(
     db: TrackDatabase,
     output_dir: Path,
-    config: RecordingConfig | None = None
+    config: RecordingConfig | None = None,
+    max_retries: int = 5
 ) -> list[Path]:
     """
-    Process all approved tracks in the database.
+    Process all approved tracks eligible for processing (respects backoff).
 
     Args:
         db: Track database
         output_dir: Where to save MP3s
         config: Recording configuration
+        max_retries: Max retry attempts before giving up
 
     Returns:
         List of paths to recorded MP3s
     """
-    approved = db.get_by_status(TrackStatus.APPROVED)
+    approved = db.get_retry_eligible(TrackStatus.APPROVED, max_retries=max_retries)
 
     if not approved:
-        print("No approved tracks to process")
         return []
 
-    print(f"Found {len(approved)} approved track(s)")
+    print(f"Found {len(approved)} approved track(s) ready to process")
     results = []
 
     for track_row in approved:
+        retry_count = track_row.get("retry_count") or 0
+        if retry_count > 0:
+            print(f"Retrying (attempt {retry_count + 1}/{max_retries}): {track_row['name']}")
+
         path = await process_approved_track(
             db=db,
             spotify_id=track_row["spotify_id"],
@@ -188,7 +205,6 @@ async def process_all_approved(
         if path:
             results.append(path)
 
-        # Small delay between tracks
         await asyncio.sleep(2)
 
     return results

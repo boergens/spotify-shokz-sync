@@ -85,7 +85,8 @@ def get_files_on_device(music_folder: Path) -> set[str]:
 def sync_tracks_to_device(
     music_folder: Path,
     db: TrackDatabase,
-    source_dir: Path
+    source_dir: Path,
+    max_retries: int = 5
 ) -> list[dict]:
     """Sync recorded tracks to USB device.
 
@@ -93,50 +94,57 @@ def sync_tracks_to_device(
         music_folder: Destination folder on USB device
         db: Track database
         source_dir: Local music library directory
+        max_retries: Max retry attempts for failed syncs
 
     Returns:
         List of tracks that were synced
     """
-    # Get tracks that have been recorded but not synced
-    recorded_tracks = db.get_by_status(TrackStatus.RECORDED)
+    recorded_tracks = db.get_retry_eligible(TrackStatus.RECORDED, max_retries=max_retries)
 
     if not recorded_tracks:
         return []
 
-    # Get files already on device
     existing_files = get_files_on_device(music_folder)
 
     synced = []
     for track in recorded_tracks:
+        spotify_id = track["spotify_id"]
         file_path = track.get("file_path")
         if not file_path:
+            db.record_failure(spotify_id, "No file_path in database")
             continue
 
         source = Path(file_path)
         if not source.exists():
-            # Try relative to source_dir
             source = source_dir / source.name
             if not source.exists():
+                db.record_failure(spotify_id, f"Source file not found: {file_path}")
                 print(f"Source file not found: {file_path}")
                 continue
 
         filename = source.name
 
-        # Skip if already on device
         if filename in existing_files:
-            # Mark as synced since it's already there
-            db.update_status(track["spotify_id"], TrackStatus.SYNCED)
+            db.update_status(spotify_id, TrackStatus.SYNCED)
+            db.reset_retry(spotify_id)
             synced.append(track)
             continue
 
-        # Copy file to device
         dest = music_folder / filename
         print(f"Copying: {filename}")
-        shutil.copy2(source, dest)
 
-        # Update database
-        db.update_status(track["spotify_id"], TrackStatus.SYNCED)
-        synced.append(track)
+        try:
+            shutil.copy2(source, dest)
+            db.update_status(spotify_id, TrackStatus.SYNCED)
+            db.reset_retry(spotify_id)
+            synced.append(track)
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            db.record_failure(spotify_id, error_msg)
+            print(f"Failed to copy {filename}: {error_msg}")
+            # Clean up partial file if it exists
+            if dest.exists():
+                dest.unlink()
 
     return synced
 

@@ -36,7 +36,14 @@ class TrackDatabase:
                 )
             """)
             # Add new columns if they don't exist (for existing databases)
-            for col, col_type in [("album_art_url", "TEXT"), ("track_number", "INTEGER")]:
+            new_columns = [
+                ("album_art_url", "TEXT"),
+                ("track_number", "INTEGER"),
+                ("retry_count", "INTEGER DEFAULT 0"),
+                ("last_error", "TEXT"),
+                ("last_retry_at", "TEXT"),
+            ]
+            for col, col_type in new_columns:
                 try:
                     conn.execute(f"ALTER TABLE tracks ADD COLUMN {col} {col_type}")
                 except sqlite3.OperationalError:
@@ -107,3 +114,69 @@ class TrackDatabase:
             cursor = conn.cursor()
             cursor.execute("SELECT 1 FROM tracks WHERE spotify_id = ?", (spotify_id,))
             return cursor.fetchone() is not None
+
+    def record_failure(self, spotify_id: str, error: str):
+        """Record a failed processing attempt."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """UPDATE tracks
+                   SET retry_count = COALESCE(retry_count, 0) + 1,
+                       last_error = ?,
+                       last_retry_at = ?
+                   WHERE spotify_id = ?""",
+                (error, datetime.now().isoformat(), spotify_id)
+            )
+            conn.commit()
+
+    def reset_retry(self, spotify_id: str):
+        """Reset retry count after successful processing."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """UPDATE tracks
+                   SET retry_count = 0, last_error = NULL, last_retry_at = NULL
+                   WHERE spotify_id = ?""",
+                (spotify_id,)
+            )
+            conn.commit()
+
+    def get_retry_eligible(
+        self,
+        status: TrackStatus,
+        max_retries: int = 5,
+        min_backoff_minutes: int = 5
+    ) -> list[dict]:
+        """Get tracks eligible for retry based on exponential backoff.
+
+        Backoff schedule: 5min, 10min, 20min, 40min, 80min (then gives up)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT * FROM tracks
+                   WHERE status = ?
+                   AND (retry_count IS NULL OR retry_count < ?)
+                   AND (
+                       last_retry_at IS NULL
+                       OR datetime(last_retry_at, '+' || (? * (1 << COALESCE(retry_count, 0))) || ' minutes') < datetime('now', 'localtime')
+                   )""",
+                (status.value, max_retries, min_backoff_minutes)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_stuck_tracks(self, max_retries: int = 5) -> list[dict]:
+        """Get tracks that have exceeded max retries."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT * FROM tracks
+                   WHERE retry_count >= ?
+                   AND status IN (?, ?)""",
+                (max_retries, TrackStatus.APPROVED.value, TrackStatus.RECORDED.value)
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def force_retry(self, spotify_id: str):
+        """Force a track to be retried by resetting its retry state."""
+        self.reset_retry(spotify_id)
