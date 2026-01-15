@@ -135,6 +135,18 @@ def sync_tracks_to_device(
 
         try:
             shutil.copy2(source, dest)
+
+            # Verify copy integrity - check file size matches
+            source_size = source.stat().st_size
+            dest_size = dest.stat().st_size
+
+            if source_size != dest_size:
+                error_msg = f"Size mismatch: source={source_size}, dest={dest_size}"
+                db.record_failure(spotify_id, error_msg)
+                print(f"Failed to copy {filename}: {error_msg}")
+                dest.unlink()
+                continue
+
             db.update_status(spotify_id, TrackStatus.SYNCED)
             db.reset_retry(spotify_id)
             synced.append(track)
